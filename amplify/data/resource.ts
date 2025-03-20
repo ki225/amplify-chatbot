@@ -1,17 +1,69 @@
-import { type ClientSchema, a, defineData } from "@aws-amplify/backend";
+import { a, defineData, defineFunction, type ClientSchema } from '@aws-amplify/backend';
+import { BusinessAnalyzer } from '../functions/BusinessAnalyzer/resource';
+import { invokeFlow } from "../functions/invokeFlow/resource";
 
-/*== STEP 1 ===============================================================
-The section below creates a Todo database table with a "content" field. Try
-adding a new "isDone" field as a boolean. The authorization rule below
-specifies that any user authenticated via an API key can "create", "read",
-"update", and "delete" any "Todo" records.
-=========================================================================*/
+
 const schema = a.schema({
-  Todo: a
-    .model({
-      content: a.string(),
-    })
-    .authorization((allow) => [allow.publicApiKey()]),
+
+  // This adds a new generation route to your Amplify Data backend.
+  BusinessAnalyzer: a
+      .query()
+      .arguments({
+        prompt: a.string(),
+      })
+      .returns(
+        a.customType({
+          report: a.string(),
+          image: a.string(),
+        })
+      )
+      .handler(a.handler.function(BusinessAnalyzer))
+      .authorization((allow) => [allow.authenticated()]),
+
+  invokeFlow: a
+      .query()
+      .arguments({
+         document: a.string(),
+       })
+       .returns(
+         a.customType({
+           title: a.string(),
+           description: a.string(),
+         })
+       )
+       .authorization((allow) => allow.authenticated())
+       .handler(a.handler.function(invokeFlow)),
+
+  // This will add a new conversation route to your Amplify Data backend.
+  chat: a.conversation({
+    aiModel: a.ai.model("Claude 3 Sonnet"),
+    systemPrompt: "你是個專業的助理",
+    // "你是個專業的助理，如果用戶與商業相關的問題，請你調用BusinessAnalyzer工具",
+
+    // conversation routes can have multiple tools
+    tools: [
+      {
+        name: "sleep",
+        description: "用戶想睡覺才call這個工具",
+        query: a.ref("BusinessAnalyzer"),
+      },
+      a.ai.dataTool({
+        name: "BusinessAnalyzer", // "invokeFlow",
+        description:
+          "用來作為商業分析的工具",
+          // "Connects to an Amazon Bedrock Flow to generate" +
+          // "dynamic content based on user queries. " +
+          // "The tool streams responses from Bedrock for optimal performance.",
+        query: a.ref("invokeFlow") 
+      }),
+      // a.ai.dataTool({
+      //   name: "BusinessAnalyzer",
+      //   description: "處理商業相關事務的工具",
+      //   query: a.ref("BusinessAnalyzer"),
+      // })
+    ],
+  }).authorization((allow) => allow.owner()),  
+
 });
 
 export type Schema = ClientSchema<typeof schema>;
@@ -19,39 +71,8 @@ export type Schema = ClientSchema<typeof schema>;
 export const data = defineData({
   schema,
   authorizationModes: {
-    defaultAuthorizationMode: "apiKey",
-    // API Key is used for a.allow.public() rules
-    apiKeyAuthorizationMode: {
-      expiresInDays: 30,
-    },
+    defaultAuthorizationMode: "userPool",
   },
 });
 
-/*== STEP 2 ===============================================================
-Go to your frontend source code. From your client-side code, generate a
-Data client to make CRUDL requests to your table. (THIS SNIPPET WILL ONLY
-WORK IN THE FRONTEND CODE FILE.)
-
-Using JavaScript or Next.js React Server Components, Middleware, Server 
-Actions or Pages Router? Review how to generate Data clients for those use
-cases: https://docs.amplify.aws/gen2/build-a-backend/data/connect-to-API/
-=========================================================================*/
-
-/*
-"use client"
-import { generateClient } from "aws-amplify/data";
-import type { Schema } from "@/amplify/data/resource";
-
-const client = generateClient<Schema>() // use this Data client for CRUDL requests
-*/
-
-/*== STEP 3 ===============================================================
-Fetch records from the database and use them in your frontend component.
-(THIS SNIPPET WILL ONLY WORK IN THE FRONTEND CODE FILE.)
-=========================================================================*/
-
-/* For example, in a React component, you can use this snippet in your
-  function's RETURN statement */
-// const { data: todos } = await client.models.Todo.list()
-
-// return <ul>{todos.map(todo => <li key={todo.id}>{todo.content}</li>)}</ul>
+console.log("Data schema:", schema);
